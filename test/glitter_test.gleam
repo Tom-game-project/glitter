@@ -2,7 +2,7 @@ import gleam/io
 import gleam/list
 import gleam/string
 import gleeunit
-import glitter.{
+import glitter/glitter.{
   type Parser, ignorethen_p, many_p, map_p, map_then_p, or_p, rec_p,
   thenignore_p, word_p,
 }
