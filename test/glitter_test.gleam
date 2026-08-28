@@ -1,8 +1,11 @@
-import gleam/list
-import gleeunit
-import glitter.{type Parser, or_p, map_then_p, word_p, many_p, rec_p, ignorethen_p, thenignore_p, map_p}
-import gleam/string
 import gleam/io
+import gleam/list
+import gleam/string
+import gleeunit
+import glitter.{
+  type Parser, ignorethen_p, many_p, map_p, map_then_p, or_p, rec_p,
+  thenignore_p, word_p,
+}
 
 pub fn main() -> Nil {
   gleeunit.main()
@@ -72,8 +75,8 @@ pub fn then_p_test() {
   let p3: Parser(String, String, ParseError) = word_p("xxx", "xxx", ExpectedA)
   let p4: Parser(String, String, ParseError) = word_p("yyy", "yyy", ExpectedB)
 
-  let n_p1 = map_then_p(p1, p2, fn (a, b) { Pre(a <> b) })
-  let n_p2 = map_then_p(p3, p4, fn (a, b) { Pre(a <> b) })
+  let n_p1 = map_then_p(p1, p2, fn(a, b) { Pre(a <> b) })
+  let n_p2 = map_then_p(p3, p4, fn(a, b) { Pre(a <> b) })
 
   let n_p = or_p(n_p1, n_p2)
   let m_p = many_p(n_p)
@@ -81,7 +84,7 @@ pub fn then_p_test() {
   case m_p(str) {
     Ok(#(v, remain)) -> {
       io.println("Success to parse")
-      print_list(v, fn (a) {
+      print_list(v, fn(a) {
         case a {
           Pre(pre) -> {
             "pre: " <> pre
@@ -102,7 +105,7 @@ pub fn then_p_test() {
   }
 }
 
-fn print_list(lst: List(a), stringify: fn (a) -> String) -> Nil {
+fn print_list(lst: List(a), stringify: fn(a) -> String) -> Nil {
   lst
   |> list.map(stringify)
   |> string.join(", ")
@@ -132,10 +135,8 @@ fn print_tree(paren: Paren, depth: Int) -> Nil {
   }
 }
 
-fn print_tree_list(parens: List(Paren)) -> Nil{
-  list.map(
-    parens, print_tree(_, 0)
-  )
+fn print_tree_list(parens: List(Paren)) -> Nil {
+  list.map(parens, print_tree(_, 0))
   Nil
 }
 
@@ -149,22 +150,19 @@ pub fn rec_test() {
   let open_c = word_p("{", AtomA, ExpectedA)
   let close_c = word_p("}", AtomA, ExpectedA)
 
-  let p = rec_p(
-    fn (dispatch){
-      many_p(
+  let p =
+    rec_p(fn(dispatch) {
+      many_p(or_p(
+        a_p,
         or_p(
-          a_p,
-          or_p(
-            b_p,
-            ignorethen_p(
-              open_c,
-              thenignore_p(
-                map_p(dispatch, fn (inner) { Paren(inner) }), close_c))
-          )
-        )
-      )
-    }
-  )
+          b_p,
+          ignorethen_p(
+            open_c,
+            thenignore_p(map_p(dispatch, fn(inner) { Paren(inner) }), close_c),
+          ),
+        ),
+      ))
+    })
 
   case p(str) {
     Ok(#(v, remain)) -> {
