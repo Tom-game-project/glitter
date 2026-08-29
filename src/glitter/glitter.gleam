@@ -1,3 +1,5 @@
+import gleam/list
+import gleam/result
 import gleam/string
 
 // Result(output_result, remain_input, error_type)
@@ -6,40 +8,35 @@ pub type Parser(i, o, e) =
 
 pub fn or_p(p1, p2) -> Parser(i, o, e) {
   fn(input) {
-    case p1(input) {
-      Ok(v) -> {
-        Ok(v)
-      }
-      Error(_err) -> {
-        case p2(input) {
-          Ok(v) -> {
-            Ok(v)
-          }
-          Error(err) -> {
-            Error(err)
-          }
-        }
-      }
-    }
+    use <- result.lazy_or(p1(input))
+    p2(input)
   }
 }
 
-pub fn map_then_p(p1, p2, comb) -> Parser(i, o3, e) {
+fn list_or_parser(lp, input, ecomb) -> Result(#(o, i), e) {
+  case lp {
+    [] -> Error(ecomb)
+    [first, ..remain] ->
+      case first(input) {
+        Ok(v) -> Ok(v)
+        Error(e) -> list_or_parser(remain, input, e)
+      }
+  }
+}
+
+pub fn choice_p(lp, ecomb) -> Parser(i, o, e) {
+  fn(input) { list_or_parser(lp, input, ecomb) }
+}
+
+pub fn map_then_p(p1, p2, comb) -> Parser(i, o, e) {
   fn(input) {
     case p1(input) {
-      Ok(#(v0, remain0)) -> {
+      Ok(#(v0, remain0)) ->
         case p2(remain0) {
-          Ok(#(v1, remain1)) -> {
-            Ok(#(comb(v0, v1), remain1))
-          }
-          Error(err) -> {
-            Error(err)
-          }
+          Ok(#(v1, remain1)) -> Ok(#(comb(v0, v1), remain1))
+          Error(err) -> Error(err)
         }
-      }
-      Error(err) -> {
-        Error(err)
-      }
+      Error(err) -> Error(err)
     }
   }
 }
@@ -62,26 +59,18 @@ fn map_split_while_parser(input, p) -> #(List(o), i) {
       let #(out_list, remainremain) = map_split_while_parser(remain, p)
       #([out, ..out_list], remainremain)
     }
-    Error(_e) -> {
-      #([], input)
-    }
+    Error(_e) -> #([], input)
   }
 }
 
 pub fn many_p(p) -> Parser(i, List(o), e) {
-  fn(input) { Ok(map_split_while_parser(input, p)) }
+  fn(input) { map_split_while_parser(input, p) |> Ok }
 }
 
 pub fn map_p(p, f) -> Parser(i, o, e) {
   fn(input) {
-    case p(input) {
-      Ok(#(out, remain)) -> {
-        Ok(#(f(out), remain))
-      }
-      Error(e) -> {
-        Error(e)
-      }
-    }
+    use #(b, r) <- result.map(p(input))
+    #(f(b), r)
   }
 }
 
@@ -93,16 +82,12 @@ pub fn rec_p(f) -> Parser(i, o, e) {
   fn(input) { f(rec_p(f))(input) }
 }
 
-pub fn word_p(word, conb, econb) -> Parser(String, o, e) {
+pub fn word_p(word, conb, ecomb) -> Parser(String, o, e) {
   let token_length = string.length(word)
   fn(input) {
     case string.starts_with(input, word) {
-      True -> {
-        Ok(#(conb, string.drop_start(input, token_length)))
-      }
-      False -> {
-        Error(econb)
-      }
+      True -> Ok(#(conb, string.drop_start(input, token_length)))
+      False -> Error(ecomb)
     }
   }
 }
@@ -110,12 +95,24 @@ pub fn word_p(word, conb, econb) -> Parser(String, o, e) {
 pub fn end_p(err) -> Parser(String, Nil, e) {
   fn(input) {
     case input {
-      "" -> {
-        Ok(#(Nil, ""))
-      }
-      _ -> {
-        Error(err)
-      }
+      "" -> Ok(#(Nil, ""))
+      _ -> Error(err)
+    }
+  }
+}
+
+pub fn pred_char_p(
+  char_list,
+  ecomb,
+) -> Parser(List(UtfCodepoint), UtfCodepoint, e) {
+  fn(input) {
+    case input {
+      [] -> Error(ecomb)
+      [first, ..remain] ->
+        case list.contains(char_list, first) {
+          True -> Ok(#(first, remain))
+          False -> Error(ecomb)
+        }
     }
   }
 }

@@ -3,20 +3,12 @@ import gleam/list
 import gleam/string
 import gleeunit
 import glitter/glitter.{
-  type Parser, ignorethen_p, many_p, map_p, map_then_p, or_p, rec_p,
-  thenignore_p, word_p,
+  type Parser, choice_p, end_p, ignorethen_p, many_p, map_p, map_then_p, or_p,
+  rec_p, thenignore_p, word_p,
 }
 
 pub fn main() -> Nil {
   gleeunit.main()
-}
-
-// gleeunit test functions end in `_test`
-pub fn hello_world_test() {
-  let name = "Joe"
-  let greeting = "Hello, " <> name <> "!"
-
-  assert greeting == "Hello, Joe!"
 }
 
 pub type Node {
@@ -32,6 +24,7 @@ pub type ParseError {
 }
 
 pub fn or_p_test() {
+  io.println("or_p_test")
   let str = "Ahello world"
 
   // let #(c, remain) = #(string.first(str), string.drop_start(str, 1))
@@ -64,6 +57,7 @@ pub fn or_p_test() {
 }
 
 pub fn then_p_test() {
+  io.println("then_p_test")
   //let str = "letmuthello world"
   let str = "xxxyyyletmuthello world"
 
@@ -116,58 +110,42 @@ pub type Paren {
   Paren(List(Paren))
   AtomA
   AtomB
-}
-
-fn print_tree(paren: Paren, depth: Int) -> Nil {
-  let space = string.repeat(" ", depth * 4)
-  case paren {
-    Paren(parens) -> {
-      io.println(space <> "{")
-      list.map(parens, print_tree(_, depth + 1))
-      io.println(space <> "}")
-    }
-    AtomA -> {
-      io.println(space <> "A")
-    }
-    AtomB -> {
-      io.println(space <> "B")
-    }
-  }
-}
-
-fn print_tree_list(parens: List(Paren)) -> Nil {
-  list.map(parens, print_tree(_, 0))
-  Nil
+  Other
 }
 
 pub fn rec_test() {
-  // let str = "{{A}{B}}"
+  io.println("rec_test")
   let str = "{{A}{ABA}}"
 
   let a_p = word_p("A", AtomA, ExpectedA)
-  let b_p = word_p("B", AtomA, ExpectedB)
+  let b_p = word_p("B", AtomB, ExpectedB)
 
-  let open_c = word_p("{", AtomA, ExpectedA)
-  let close_c = word_p("}", AtomA, ExpectedA)
+  let open_c = word_p("{", Other, ExpectedA)
+  let close_c = word_p("}", Other, ExpectedA)
 
   let p =
-    rec_p(fn(dispatch) {
-      many_p(or_p(
+    {
+      use dispatch <- rec_p
+      [
         a_p,
-        or_p(
-          b_p,
-          ignorethen_p(
-            open_c,
-            thenignore_p(map_p(dispatch, fn(inner) { Paren(inner) }), close_c),
-          ),
-        ),
-      ))
-    })
+        b_p,
+        open_c
+          |> ignorethen_p({
+            use inner <- map_p(dispatch)
+            Paren(inner)
+          })
+          |> thenignore_p(close_c),
+      ]
+      |> choice_p(ExpectedA)
+      |> many_p
+    }
+    |> thenignore_p(end_p(ExpectedA))
 
   case p(str) {
     Ok(#(v, remain)) -> {
       io.println("")
-      print_tree_list(v)
+      echo v
+      // print_tree_list(v)
       io.println("remain \"" <> remain <> "\"")
       io.println("success to parse")
     }
