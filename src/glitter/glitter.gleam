@@ -2,18 +2,24 @@ import gleam/list
 import gleam/result
 import gleam/string
 
+pub type Fn(i, o) =
+  fn(i) -> o
+
+pub type TryFn(i, o, e) =
+  Fn(i, Result(o, e))
+
 // Result(output_result, remain_input, error_type)
 pub type Parser(i, o, e) =
-  fn(i) -> Result(#(o, i), e)
+  TryFn(i, #(o, i), e)
 
-pub fn or_p(p1, p2) -> Parser(i, o, e) {
+pub fn or_p(p1, p2) -> TryFn(i, o, e) {
   fn(input) {
     use <- result.lazy_or(p1(input))
     p2(input)
   }
 }
 
-fn list_or_parser(lp, input, ecomb) -> Result(#(o, i), e) {
+fn list_or_parser(lp, input, ecomb) -> Result(o, e) {
   case lp {
     [] -> Error(ecomb)
     [first, ..remain] ->
@@ -24,8 +30,8 @@ fn list_or_parser(lp, input, ecomb) -> Result(#(o, i), e) {
   }
 }
 
-pub fn choice_p(lp, ecomb) -> Parser(i, o, e) {
-  fn(input) { list_or_parser(lp, input, ecomb) }
+pub fn choice_p(lp, ecomb) -> TryFn(i, o, e) {
+  list_or_parser(lp, _, ecomb)
 }
 
 pub fn map_then_p(p1, p2, comb) -> Parser(i, o, e) {
@@ -67,6 +73,11 @@ pub fn many_p(p) -> Parser(i, List(o), e) {
   fn(input) { map_split_while_parser(input, p) |> Ok }
 }
 
+pub fn many1_p(p) -> Parser(i, List(o), e) {
+  use #(o, r) <- map_p(then_p(p, many_p(p)))
+  [o, ..r]
+}
+
 pub fn map_p(p, f) -> Parser(i, o, e) {
   fn(input) {
     use #(b, r) <- result.map(p(input))
@@ -78,8 +89,8 @@ pub fn map_p(p, f) -> Parser(i, o, e) {
 /// ```
 /// fn (dispatch) { then_p(char_p("{"), then_p(dispatch, char_p("}"))) }
 /// ```
-pub fn rec_p(f) -> Parser(i, o, e) {
-  fn(input) { f(rec_p(f))(input) }
+pub fn fixed_point_combinator(f) -> Fn(i, o) {
+  fn(x) { f(fixed_point_combinator(f))(x) }
 }
 
 pub fn word_p(word, conb, ecomb) -> Parser(String, o, e) {
@@ -96,6 +107,15 @@ pub fn end_p(err) -> Parser(String, Nil, e) {
   fn(input) {
     case input {
       "" -> Ok(#(Nil, ""))
+      _ -> Error(err)
+    }
+  }
+}
+
+pub fn utf_end_p(err) -> Parser(List(UtfCodepoint), Nil, e) {
+  fn(input) {
+    case input {
+      [] -> Ok(#(Nil, []))
       _ -> Error(err)
     }
   }

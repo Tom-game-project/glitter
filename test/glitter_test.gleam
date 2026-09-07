@@ -3,8 +3,8 @@ import gleam/list
 import gleam/string
 import gleeunit
 import glitter/glitter.{
-  type Parser, choice_p, end_p, ignorethen_p, many_p, map_p, map_then_p, or_p,
-  rec_p, thenignore_p, word_p,
+  type Parser, choice_p, end_p, fixed_point_combinator, ignorethen_p, many_p,
+  map_p, map_then_p, or_p, thenignore_p, word_p,
 }
 
 pub fn main() -> Nil {
@@ -125,7 +125,7 @@ pub fn rec_test() {
 
   let p =
     {
-      use dispatch <- rec_p
+      use dispatch <- fixed_point_combinator
       [
         a_p,
         b_p,
