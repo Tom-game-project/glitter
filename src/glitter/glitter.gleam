@@ -2,6 +2,8 @@ import gleam/list
 import gleam/result
 import gleam/string
 
+import list1/list1.{type List1, List1}
+
 pub type Fn(i, o) =
   fn(i) -> o
 
@@ -73,9 +75,10 @@ pub fn many_p(p) -> Parser(i, List(o), e) {
   fn(input) { map_split_while_parser(input, p) |> Ok }
 }
 
-pub fn many1_p(p) -> Parser(i, List(o), e) {
+pub fn many1_p(p) -> Parser(i, List1(o), e) {
   use #(o, r) <- map_p(then_p(p, many_p(p)))
-  [o, ..r]
+
+  List1(first: o, next: r)
 }
 
 pub fn map_p(p, f) -> Parser(i, o, e) {
@@ -121,6 +124,16 @@ pub fn utf_end_p(err) -> Parser(List(UtfCodepoint), Nil, e) {
   }
 }
 
+pub fn utf_end_with_span_p(err) -> Parser(#(Int, List(UtfCodepoint)), Nil, e) {
+  fn(input) {
+    let #(start, left) = input
+    case left {
+      [] -> Ok(#(Nil, #(start, [])))
+      _ -> Error(err)
+    }
+  }
+}
+
 pub fn pred_char_p(
   char_list,
   ecomb,
@@ -135,4 +148,35 @@ pub fn pred_char_p(
         }
     }
   }
+}
+
+pub type Span {
+  Span(start: Int, end: Int)
+}
+
+pub fn pred_char_with_span_p(
+  char_list,
+  ecomb,
+) -> Parser(#(Int, List(UtfCodepoint)), #(Span, UtfCodepoint), e) {
+  fn(input) {
+    let #(start, left) = input
+    case left {
+      [] -> Error(ecomb)
+      [first, ..remain] ->
+        case list.contains(char_list, first) {
+          True ->
+            Ok(#(#(Span(start, end: start + 1), first), #(start + 1, remain)))
+          False -> Error(ecomb)
+        }
+    }
+  }
+}
+
+pub fn span_gather(
+  lst: List1(#(Span, UtfCodepoint)),
+) -> #(Span, List1(UtfCodepoint)) {
+  #(
+    Span(start: lst.first.0.start, end: list1.last(lst).0.end),
+    list1.map(lst, fn(x) { x.1 }),
+  )
 }
