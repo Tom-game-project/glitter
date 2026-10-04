@@ -1,6 +1,6 @@
 import gleam/list
 
-pub type List1(a) {
+pub opaque type List1(a) {
   List1(first: a, next: List(a))
 }
 
@@ -13,6 +13,14 @@ pub fn last(lst: List1(a)) -> a {
       lst.first
     }
   }
+}
+
+pub fn first(lst: List1(a)) -> a {
+  lst.first
+}
+
+pub fn new(first: a, succs: List(a)) -> List1(a) {
+  List1(first, next: succs)
 }
 
 pub fn to_list(lst: List1(a)) -> List(a) {

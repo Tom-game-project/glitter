@@ -1,12 +1,10 @@
 import gleam/io
-import gleam/list
-import gleam/option
 import gleam/string
 import glitter/glitter.{
-  type Parser, type Span, Span, choice_p, end_p, fixed_point_combinator,
-  ignorethen_p, many1_p, many_p, map_p, map_then_p, or_p, pred_char_p,
+  type Span, Span, choice_p, fixed_point_combinator,
+  ignorethen_p, many1_p, many_p, map_p, pred_char_p,
   pred_char_with_span_p, span_gather, then_p, thenignore_p, utf_end_p,
-  utf_end_with_span_p, word_p,
+  utf_end_with_span_p, word_with_span_p
 }
 import list1/list1
 
@@ -21,6 +19,7 @@ pub type ParseErr {
   EndErr
   ParenErr
   CharNotFound
+  WordErr
 
   OtherwiseErr
 }
@@ -82,18 +81,21 @@ pub type SpanParen {
   SpanParen(Span, List(SpanParen))
   SpanNum(Span, String)
   SpanWord(Span, String)
+  Let
 }
 
 pub fn pred_char_with_span_test() -> Nil {
   let str = "{{ABC}{CCC{123}ABC}}"
 
   let open_c =
-    pred_char_with_span_p(string.to_utf_codepoints("{"), CharNotFound)
+    pred_char_with_span_p(string.to_utf_codepoints("{"), fn(_s) { CharNotFound })
   let close_c =
-    pred_char_with_span_p(string.to_utf_codepoints("}"), CharNotFound)
+    pred_char_with_span_p(string.to_utf_codepoints("}"), fn (_s) { CharNotFound })
+  let new_line_c =
+    pred_char_with_span_p(string.to_utf_codepoints("\n"), fn (_s) { CharNotFound })
 
-  let word_parser =
-    pred_char_with_span_p(string.to_utf_codepoints("ABC"), CharNotFound)
+  let many1_pred_char =
+    pred_char_with_span_p(string.to_utf_codepoints("ABC"), fn (_s) { CharNotFound })
     |> many1_p
     |> map_p(fn(inner) {
       let #(span, utf_codepoints) = span_gather(inner)
@@ -103,8 +105,14 @@ pub fn pred_char_with_span_test() -> Nil {
       )
     })
 
+  let word_let_p = word_with_span_p("let" |> string.to_utf_codepoints, Let, fn (_s) { WordErr })
+  let word_fn_p = word_with_span_p("fn" |> string.to_utf_codepoints, Let, fn (_s) { WordErr })
+  let word_loop_p = word_with_span_p("loop" |> string.to_utf_codepoints, Let, fn (_s) { WordErr })
+
+  let pad_p = pred_char_with_span_p(string.to_utf_codepoints(" \n"), fn (_s) { CharNotFound })
+
   let number_parser =
-    pred_char_with_span_p(string.to_utf_codepoints("1234567890"), CharNotFound)
+    pred_char_with_span_p(string.to_utf_codepoints("1234567890"), fn (_s) { CharNotFound })
     |> many1_p
     |> map_p(fn(inner) {
       let #(span, utf_codepoints) = span_gather(inner)
@@ -119,27 +127,14 @@ pub fn pred_char_with_span_test() -> Nil {
     {
       use dispatch <- fixed_point_combinator
       [
-        word_parser,
+        many1_pred_char,
 
         number_parser,
 
-        // open_c
-        //   |> then_p({
-        //     use inner <- map_p(dispatch)
-        //     inner
-        //   })
-        //   |> then_p(close_c)
-        //   |> map_p(fn(input) {
-        //     let #(#(#(open_span, _), inner), #(close_span, _)) = input
-        //     SpanParen(Span(start: open_span.start, end: close_span.end), inner)
-        //   }),
         {
           use #(#(#(open_span, _), inner_paren), #(close_span, _)) <- map_p(
             open_c
-            |> then_p({
-              use inner <- map_p(dispatch)
-              inner
-            })
+            |> then_p(dispatch)
             |> then_p(close_c),
           )
           SpanParen(
