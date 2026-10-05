@@ -45,16 +45,16 @@ pub type UntypedExpr {
   Call(Span, #(Span, String), List(UntypedExpr))
 }
 
+const indent_space = "  "
+
 fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
-  case ast {
+  string.repeat(indent_space, times: depth)
+  <> case ast {
     Paren(span, inner_ast) ->
-      string.repeat("  ", times: depth)
-      <> "Paren\n"
-      <> untyped_expr_to_string(depth + 1, inner_ast)
+      "Paren\n" <> untyped_expr_to_string(depth + 1, inner_ast)
 
     Bin(#(span, ope), expr1, expr2) ->
-      string.repeat("  ", times: depth)
-      <> case ope {
+      case ope {
         Add -> "Add"
         Sub -> "Sub"
         Div -> "Div"
@@ -66,8 +66,7 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
       <> untyped_expr_to_string(depth + 1, expr2)
 
     Unary(#(span, ope), expr) ->
-      string.repeat("  ", times: depth)
-      <> case ope {
+      case ope {
         Minus -> "Minus"
         Plus -> "Plus"
         Point -> "Point"
@@ -75,15 +74,12 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
       <> "\n"
       <> untyped_expr_to_string(depth + 1, expr)
 
-    Num(span, num_string) ->
-      string.repeat("  ", times: depth) <> "Num:" <> num_string <> "\n"
+    Num(span, num_string) -> "Num:" <> num_string <> "\n"
 
-    Word(span, word) ->
-      string.repeat("  ", times: depth) <> "Word:" <> word <> "\n"
+    Word(span, word) -> "Word:" <> word <> "\n"
 
     Call(span, #(_, func_name), args) ->
-      string.repeat("  ", times: depth)
-      <> "Func:"
+      "Func:"
       <> func_name
       <> "\n"
       <> string.join(
@@ -144,85 +140,70 @@ pub fn normal_expr_test() -> Nil {
         Paren(Span(start: open_span.start, end: close_span.end), inner_paren)
       }
 
-      [
+      let call = {
+        use #(#(#(word, _open_c), arg_list), close_c) <- map_p(
+          word_parser_orig
+          |> then_p(open_paren_c)
+          |> then_p(separated_by(expr, comma_c))
+          |> then_p(close_paren_c),
+        )
+        Call(Span(start: word.0.start, end: close_c.0.end), word, arg_list)
+      }
+
+      let ident =
+        [number_parser, call, word_parser, paren_p]
+        |> choice_p(OtherwiseErr)
+
+      let unary =
         {
-          let call = {
-            word_parser_orig
-            |> then_p(open_paren_c)
-            |> then_p(separated_by(expr, comma_c))
-            |> then_p(close_paren_c)
-            |> map_p(fn(in) {
-              let #(#(#(word, _open_c), arg_list), close_c) = in
-              Call(
-                Span(start: word.0.start, end: close_c.0.end),
-                word,
-                arg_list,
-              )
-            })
+          use in <- trymap_p(binop_p)
+          case string.utf_codepoint_to_int(in.1) {
+            0x2b -> Ok(#(in.0, Plus))
+            0x2d -> Ok(#(in.0, Minus))
+            _ -> Error(InvalidOperator)
           }
+        }
+        |> then_p(ident)
+        |> map_p(fn(i) {
+          let #(ope, a) = i
+          Unary(ope, a)
+        })
+        |> or_p(ident)
 
-          let ident =
-            number_parser
-            |> or_p(call)
-            |> or_p(word_parser)
-            |> or_p(paren_p)
-
-          let unary =
-            {
-              binop_p
-              |> trymap_p(fn(in) {
-                case string.utf_codepoint_to_int(in.1) {
-                  0x2b -> Ok(#(in.0, Plus))
-                  0x2d -> Ok(#(in.0, Minus))
-                  _ -> Error(InvalidOperator)
-                }
-              })
+      let product =
+        unary
+        |> foldl(
+          {
+            use in <- trymap_p(binop_p)
+            case string.utf_codepoint_to_int(in.1) {
+              0x2a -> Ok(#(in.0, Mul))
+              0x2f -> Ok(#(in.0, Div))
+              _ -> Error(InvalidOperator)
             }
-            |> then_p(ident)
-            |> map_p(fn(i) {
-              let #(ope, a) = i
-              Unary(ope, a)
-            })
-            |> or_p(ident)
+          }
+            |> then_p(unary)
+            |> many_p,
+          fn(acc, o) { Bin(o.0, acc, o.1) },
+        )
 
-          let product =
-            unary
-            |> foldl(
-              {
-                binop_p
-                |> trymap_p(fn(in) {
-                  case string.utf_codepoint_to_int(in.1) {
-                    0x2a -> Ok(#(in.0, Mul))
-                    0x2f -> Ok(#(in.0, Div))
-                    _ -> Error(InvalidOperator)
-                  }
-                })
-                |> then_p(unary)
-              }
-                |> many_p,
-              fn(acc, o) { Bin(o.0, acc, o.1) },
-            )
+      let sum =
+        product
+        |> foldl(
+          {
+            use in <- trymap_p(binop_p)
+            case string.utf_codepoint_to_int(in.1) {
+              0x2b -> Ok(#(in.0, Add))
+              0x2d -> Ok(#(in.0, Sub))
+              _ -> Error(InvalidOperator)
+            }
+          }
+            |> then_p(product)
+            |> many_p,
+          fn(acc, o) { Bin(o.0, acc, o.1) },
+        )
 
-          let sum =
-            product
-            |> foldl(
-              {
-                binop_p
-                |> trymap_p(fn(in) {
-                  case string.utf_codepoint_to_int(in.1) {
-                    0x2b -> Ok(#(in.0, Add))
-                    0x2d -> Ok(#(in.0, Sub))
-                    _ -> Error(InvalidOperator)
-                  }
-                })
-                |> then_p(product)
-              }
-                |> many_p,
-              fn(acc, o) { Bin(o.0, acc, o.1) },
-            )
-
-          sum
-        },
+      [
+        sum,
         number_parser,
         word_parser,
         paren_p,
@@ -238,6 +219,7 @@ pub fn normal_expr_test() -> Nil {
     Ok(#(v, remain)) -> {
       // echo str
       // echo v
+      io.println(str)
       io.println(untyped_expr_to_string(0, v))
       Nil
     }
