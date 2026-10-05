@@ -38,10 +38,7 @@ fn list_or_parser(lp, input, ecomb) -> Result(o, e) {
   case lp {
     [] -> Error(ecomb)
     [first, ..remain] ->
-      case first(input) {
-        Ok(v) -> Ok(v)
-        Error(e) -> list_or_parser(remain, input, e)
-      }
+      result.try_recover(first(input), list_or_parser(remain, input, _))
   }
 }
 
@@ -184,15 +181,13 @@ pub fn word_with_span_p(
   fn(input) {
     let #(start_index, input_stream) = input
     case list_start_with(input_stream, word) {
-      True -> {
+      True ->
         Ok(#(
           #(Span(start: start_index, end: start_index + token_length), comb),
           #(start_index + token_length, list.drop(input_stream, token_length)),
         ))
-      }
-      False -> {
+      False ->
         Error(ecomb(Span(start: start_index, end: start_index + token_length)))
-      }
     }
   }
 }

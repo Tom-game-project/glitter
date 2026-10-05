@@ -89,7 +89,9 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
   }
 }
 
-pub fn normal_expr_test() -> Nil {
+fn expr_parser(
+  input: #(Int, List(UtfCodepoint)),
+) -> Result(#(UntypedExpr, #(Int, List(UtfCodepoint))), ParseErr) {
   let open_paren_c =
     pred_char_with_span_p(string.to_utf_codepoints("("), fn(_s) { CharNotFound })
   let close_paren_c =
@@ -127,7 +129,7 @@ pub fn normal_expr_test() -> Nil {
       CharNotFound
     })
 
-  let expr_parser =
+  let expr_p =
     {
       use expr <- fixed_point_combinator
 
@@ -212,6 +214,10 @@ pub fn normal_expr_test() -> Nil {
     }
     |> thenignore_p(utf_end_with_span_p(EndErr))
 
+  expr_p(input)
+}
+
+pub fn normal_expr_test() -> Nil {
   let str = "123+42*333+(x+1)+f(x,y+1)"
   // let str = "-1+-1"
 
