@@ -1,6 +1,6 @@
 import gleam/list
-import gleam/result
 import gleam/option
+import gleam/result
 import gleam/string
 
 import list1/list1.{type List1}
@@ -23,14 +23,14 @@ pub fn or_p(p1, p2) -> TryFn(i, o, e) {
 }
 
 pub fn or_not_p(p: Parser(i, o, e)) -> Parser(i, option.Option(o), e) {
-  fn (input) {
+  fn(input) {
     case p(input) {
       Ok(v) -> {
         let #(o, i) = v
         Ok(#(option.Some(o), i))
       }
       Error(_err) -> Ok(#(option.None, input))
-    } 
+    }
   }
 }
 
@@ -92,29 +92,23 @@ pub fn many1_p(p) -> Parser(i, List1(o), e) {
   list1.new(o, r)
 }
 
-pub fn separated_by(p: Parser(i, o, e), sep: Parser(i, o2, e)) -> Parser(i, List(o), e) {
-  or_not_p(
+pub fn separated_by(
+  p: Parser(i, o, e),
+  sep: Parser(i, o2, e),
+) -> Parser(i, List(o), e) {
+  use in <- map_p(
     p
-    |> then_p(
-      or_not_p(then_p(sep, p) |> many_p) 
-    )
-  ) |> map_p(fn (in) {
-    case in {
-      option.Some(#(head, succ)) -> {
-        case succ {
-          option.Some(succ_lst) -> {
-            [head, ..list.map(succ_lst, fn(i) {i.1})]
-          }
-          option.None -> {
-            [head]
-          }
-        }
+    |> then_p(then_p(sep, p) |> many_p |> or_not_p())
+    |> or_not_p(),
+  )
+  case in {
+    option.Some(#(head, succ)) ->
+      case succ {
+        option.Some(succ_lst) -> [head, ..list.map(succ_lst, fn(i) { i.1 })]
+        option.None -> [head]
       }
-      option.None -> {
-        []
-      }
-    }
-  })
+    option.None -> []
+  }
 }
 
 pub fn map_p(p, f) -> Parser(i, o, e) {
@@ -124,24 +118,32 @@ pub fn map_p(p, f) -> Parser(i, o, e) {
   }
 }
 
-pub fn trymap_p(p: Parser(i, a, e), f: fn(a) -> Result(o, e)) -> Parser(i, o, e) {
+pub fn trymap_p(
+  p: Parser(i, a, e),
+  f: fn(a) -> Result(o, e),
+) -> Parser(i, o, e) {
   fn(input) {
     {
       use #(v, rem) <- result.map(p(input))
       use v2 <- result.map(f(v))
       #(v2, rem)
-    } 
+    }
     |> result.flatten
   }
 }
 
-pub fn foldl(init_p: Parser(i, acc, e), p: Parser(i, List(o), e), f: fn(acc, o) -> acc) -> Parser(i, acc, e) {
-  fn (input) {
+pub fn foldl(
+  init_p: Parser(i, acc, e),
+  p: Parser(i, List(o), e),
+  f: fn(acc, o) -> acc,
+) -> Parser(i, acc, e) {
+  fn(input) {
     {
       use #(acc, init_rem) <- result.map(init_p(input))
       use #(lst, rem) <- result.map(p(init_rem))
       #(list.fold(lst, acc, f), rem)
-    } |> result.flatten
+    }
+    |> result.flatten
   }
 }
 
@@ -165,22 +167,28 @@ pub fn word_p(word, conb, ecomb) -> Parser(String, o, e) {
 
 fn list_start_with(lst1, lst2) -> Bool {
   case lst1, lst2 {
-    [], [_f2, .._succs2] -> False
-    [f1, ..succs1], [f2, ..succs2] -> 
+    [], [_f2, ..] -> False
+    [f1, ..succs1], [f2, ..succs2] ->
       f1 == f2 && list_start_with(succs1, succs2)
     _, [] -> True
   }
 }
 
-pub fn word_with_span_p(word: List(UtfCodepoint), comb: o, ecomb: fn (Span) -> e) -> Parser(#(Int, List(UtfCodepoint)), #(Span, o), e)
-{
+pub fn word_with_span_p(
+  word: List(UtfCodepoint),
+  comb: o,
+  ecomb: fn(Span) -> e,
+) -> Parser(#(Int, List(UtfCodepoint)), #(Span, o), e) {
   let token_length = list.length(word)
 
   fn(input) {
     let #(start_index, input_stream) = input
     case list_start_with(input_stream, word) {
       True -> {
-        Ok(#(#(Span(start: start_index, end: start_index + token_length), comb), #(start_index + token_length, list.drop(input_stream, token_length) )))
+        Ok(#(
+          #(Span(start: start_index, end: start_index + token_length), comb),
+          #(start_index + token_length, list.drop(input_stream, token_length)),
+        ))
       }
       False -> {
         Error(ecomb(Span(start: start_index, end: start_index + token_length)))
