@@ -1,9 +1,9 @@
 import gleam/io
 import gleam/string
 import glitter/glitter.{
-  type Span, Span, choice_p, fixed_point_combinator, ignorethen_p, many1_p,
-  many_p, map_p, pred_char_p, pred_char_with_span_p, span_gather, then_p,
-  thenignore_p, list_end_p, list_end_with_span_p, word_with_span_p,
+  type Span, Span, choice_p, fixed_point_combinator, ignorethen_p, list_end_p,
+  list_end_with_span_p, many1_p, many_p, map_p, pred_char_p,
+  pred_char_with_span_p, span_gather, then_p, thenignore_p, word_with_span_p,
 }
 import list1/list1
 

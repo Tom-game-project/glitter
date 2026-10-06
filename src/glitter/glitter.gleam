@@ -15,7 +15,7 @@ pub type TryFn(i, o, e) =
 pub type Parser(i, o, e) =
   TryFn(i, #(o, i), e)
 
-pub fn just(matcher: fn (i) -> option.Option(o), err) -> Parser(List(i), o, e) {
+pub fn just(matcher: fn(i) -> option.Option(o), err) -> Parser(List(i), o, e) {
   fn(input) {
     case input {
       [] -> Error(err)
@@ -82,35 +82,40 @@ pub fn thenignore_p(p1, p2) -> Parser(i, o1, e) {
   map_then_p(p1, p2, fn(l, _r) { l })
 }
 
-type IgnoreState(a) = option.Option(a)
+type IgnoreState(a) =
+  option.Option(a)
 
 pub fn reconsider(p: Parser(i, o, e)) -> Parser(i, IgnoreState(o), e) {
-  fn (input) {
+  fn(input) {
     use #(out, rem) <- result.map(p(input))
     #(option.Some(out), rem)
   }
 }
 
 pub fn ignore(p: Parser(i, o, e)) -> Parser(i, IgnoreState(o1), e) {
-  fn (input) {
+  fn(input) {
     use #(_, rem) <- result.map(p(input))
     #(option.None, rem)
   }
 }
 
-pub fn skip_ignore_many_p(p: Parser(i, IgnoreState(o), e)) -> Parser(i, List(o), e) {
+pub fn skip_ignore_many_p(
+  p: Parser(i, IgnoreState(o), e),
+) -> Parser(i, List(o), e) {
   fn(input) { skip_ignore_map_split_while_parser(input, p) |> Ok }
 }
 
-fn skip_ignore_map_split_while_parser(input, p: Parser(i, IgnoreState(o), e)) -> #(List(o), i) {
+fn skip_ignore_map_split_while_parser(
+  input,
+  p: Parser(i, IgnoreState(o), e),
+) -> #(List(o), i) {
   case p(input) {
     Ok(#(is, remain)) -> {
-      let #(out_list, remainremain) = skip_ignore_map_split_while_parser(remain, p)
+      let #(out_list, remainremain) =
+        skip_ignore_map_split_while_parser(remain, p)
       case is {
-        option.Some(out) ->
-          #([out, ..out_list], remainremain)
-        option.None ->
-          #(out_list, remainremain)
+        option.Some(out) -> #([out, ..out_list], remainremain)
+        option.None -> #(out_list, remainremain)
       }
     }
     Error(_e) -> {

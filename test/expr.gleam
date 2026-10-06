@@ -1,13 +1,14 @@
 import gleam/int
-import gleam/option
 import gleam/io
 import gleam/list
+import gleam/option
 import gleam/string
 import glitter/glitter.{
-  type Span, Span, choice_p, fixed_point_combinator, foldl, ignorethen_p,
-  many1_p, many_p, map_p, or_p, pred_char_p, pred_char_with_span_p, separated_by,
-  span_gather, then_p, thenignore_p, trymap_p, list_end_p, list_end_with_span_p,
-  word_with_span_p, ignore, reconsider, skip_ignore_many_p, just
+  type Span, Span, choice_p, fixed_point_combinator, foldl, ignore, ignorethen_p,
+  just, list_end_p, list_end_with_span_p, many1_p, many_p, map_p, or_p,
+  pred_char_p, pred_char_with_span_p, reconsider, separated_by,
+  skip_ignore_many_p, span_gather, then_p, thenignore_p, trymap_p,
+  word_with_span_p,
 }
 import list1/list1
 
@@ -48,7 +49,7 @@ pub type UntypedExpr {
 }
 
 fn get_span(a: UntypedExpr) -> Span {
-  case a{
+  case a {
     Paren(span, _) -> span
     Bin(#(span, _), _, _) -> span
     Unary(#(span, _), _) -> span
@@ -70,15 +71,21 @@ pub type Token {
 const indent_space = "  "
 
 fn span_string(span: Span) -> String {
-  " @ Span(" <> int.to_string(span.start) <> ", " <> int.to_string(span.end) <> ")"
+  " @ Span("
+  <> int.to_string(span.start)
+  <> ", "
+  <> int.to_string(span.end)
+  <> ")"
 }
 
 fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
   string.repeat(indent_space, times: depth)
   <> case ast {
     Paren(span, inner_ast) ->
-      "Paren" <> span_string(span) <> "\n" 
-        <> untyped_expr_to_string(depth + 1, inner_ast)
+      "Paren"
+      <> span_string(span)
+      <> "\n"
+      <> untyped_expr_to_string(depth + 1, inner_ast)
 
     Bin(#(span, ope), expr1, expr2) ->
       case ope {
@@ -88,7 +95,8 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
         Mul -> "Mul"
         Pow -> "Pow"
       }
-      <> span_string(span) <> "\n" 
+      <> span_string(span)
+      <> "\n"
       <> untyped_expr_to_string(depth + 1, expr1)
       <> untyped_expr_to_string(depth + 1, expr2)
 
@@ -98,15 +106,18 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
         Plus -> "Plus"
         Point -> "Point"
       }
-      <> span_string(span) <> "\n" 
+      <> span_string(span)
+      <> "\n"
       <> untyped_expr_to_string(depth + 1, expr)
 
-    Num(span, num_string) -> "Num:" <> num_string <> span_string(span) <> "\n" 
+    Num(span, num_string) -> "Num:" <> num_string <> span_string(span) <> "\n"
 
-    Word(span, word) -> "Word:" <> word <> span_string(span) <> "\n" 
+    Word(span, word) -> "Word:" <> word <> span_string(span) <> "\n"
 
     Call(span, func_name, args) ->
-      "Func:" <> span_string(span) <> "\n" 
+      "Func:"
+      <> span_string(span)
+      <> "\n"
       <> untyped_expr_to_string(depth + 1, func_name)
       <> "\n"
       <> string.join(
@@ -121,13 +132,13 @@ fn lexer(
 ) -> Result(#(List(#(Span, Token)), #(Int, List(UtfCodepoint))), ParseErr) {
   let open_paren_c =
     pred_char_with_span_p(string.to_utf_codepoints("("), fn(_s) { CharNotFound })
-    |> map_p(fn (in) {#(in.0, LParen)})
+    |> map_p(fn(in) { #(in.0, LParen) })
   let close_paren_c =
     pred_char_with_span_p(string.to_utf_codepoints(")"), fn(_s) { CharNotFound })
-    |> map_p(fn (in) {#(in.0, RParen)})
+    |> map_p(fn(in) { #(in.0, RParen) })
   let comma_c =
     pred_char_with_span_p(string.to_utf_codepoints(","), fn(_s) { CharNotFound })
-    |> map_p(fn (in) {#(in.0, Comma)})
+    |> map_p(fn(in) { #(in.0, Comma) })
 
   let number_parser =
     pred_char_with_span_p(string.to_utf_codepoints("1234567890"), fn(_s) {
@@ -137,7 +148,10 @@ fn lexer(
     |> map_p(fn(inner) {
       let #(span, utf_codepoints) = span_gather(inner)
 
-      #(span, NumT(utf_codepoints |> list1.to_list |> string.from_utf_codepoints))
+      #(
+        span,
+        NumT(utf_codepoints |> list1.to_list |> string.from_utf_codepoints),
+      )
     })
 
   let binop_p =
@@ -146,8 +160,7 @@ fn lexer(
     })
     |> trymap_p(fn(inner) {
       let #(span, c) = inner
-      case string.utf_codepoint_to_int(c)
-      {
+      case string.utf_codepoint_to_int(c) {
         0x2b -> Ok(#(span, BinOpe(Add)))
         0x2d -> Ok(#(span, BinOpe(Sub)))
         0x2a -> Ok(#(span, BinOpe(Mul)))
@@ -165,54 +178,101 @@ fn lexer(
     |> map_p(fn(inner) {
       let #(span, utf_codepoints) = span_gather(inner)
 
-      #(span, WordT(utf_codepoints |> list1.to_list |> string.from_utf_codepoints))
+      #(
+        span,
+        WordT(utf_codepoints |> list1.to_list |> string.from_utf_codepoints),
+      )
     })
 
-  let pad_p = 
-    pred_char_with_span_p(
-      string.to_utf_codepoints(" \n\t"),
-      fn(_s) { CharNotFound },
-    )
+  let pad_p =
+    pred_char_with_span_p(string.to_utf_codepoints(" \n\t"), fn(_s) {
+      CharNotFound
+    })
     |> many1_p
 
-  let token_list = choice_p([
-    open_paren_c,
-    close_paren_c,
-    comma_c,
-    number_parser,
-    word_parser_orig,
-    binop_p,
-  ], OtherwiseErr)
-  |> reconsider()
-  |> or_p(
-    pad_p |> ignore()
-  )
-  |> skip_ignore_many_p 
-
+  let token_list =
+    choice_p(
+      [
+        open_paren_c,
+        close_paren_c,
+        comma_c,
+        number_parser,
+        word_parser_orig,
+        binop_p,
+      ],
+      OtherwiseErr,
+    )
+    |> reconsider()
+    |> or_p(pad_p |> ignore())
+    |> skip_ignore_many_p
   token_list(input)
 }
 
 fn expr_parser(
   input: List(#(Span, Token)),
 ) -> Result(#(UntypedExpr, List(#(Span, Token))), ParseErr) {
-  let open_paren_c = just(
-    fn (input: #(Span, Token)) {
-      case input {
-        #(span, LParen) -> option.Some(#(span, LParen)) 
-        _ -> option.None 
-      }
-    }, CharNotFound)
-  let close_paren_c = just(fn (input) {case input { #(span, RParen) -> option.Some(#(span, RParen)) _ -> option.None }}, CharNotFound)
-  let comma_c = just(fn (input) {case input { #(span, Comma) -> option.Some(#(span, Comma)) _ -> option.None }}, CharNotFound)
-  let number_parser = just(fn (input) {case input { #(span, NumT(str)) -> option.Some(Num(span, str)) _ -> option.None }}, CharNotFound)
-  let word_parser_orig = just(fn (input) {case input { #(span, WordT(str)) -> option.Some(Word(span, str)) _ -> option.None }}, CharNotFound)
-  let binop_p = just(
-    fn (input) {
-      case input { 
-        #(span, BinOpe(binope)) -> {
-          option.Some(#(span, binope))
+  let open_paren_c =
+    just(
+      fn(input: #(Span, Token)) {
+        case input {
+          #(span, LParen) -> option.Some(#(span, LParen))
+          _ -> option.None
         }
-        _ -> option.None}}, CharNotFound)
+      },
+      CharNotFound,
+    )
+  let close_paren_c =
+    just(
+      fn(input) {
+        case input {
+          #(span, RParen) -> option.Some(#(span, RParen))
+          _ -> option.None
+        }
+      },
+      CharNotFound,
+    )
+  let comma_c =
+    just(
+      fn(input) {
+        case input {
+          #(span, Comma) -> option.Some(#(span, Comma))
+          _ -> option.None
+        }
+      },
+      CharNotFound,
+    )
+  let number_parser =
+    just(
+      fn(input) {
+        case input {
+          #(span, NumT(str)) -> option.Some(Num(span, str))
+          _ -> option.None
+        }
+      },
+      CharNotFound,
+    )
+  let word_parser_orig =
+    just(
+      fn(input) {
+        case input {
+          #(span, WordT(str)) -> option.Some(Word(span, str))
+          _ -> option.None
+        }
+      },
+      CharNotFound,
+    )
+  let binop_p =
+    just(
+      fn(input) {
+        case input {
+          #(span, BinOpe(binope)) -> {
+            option.Some(#(span, binope))
+          }
+          _ -> option.None
+        }
+      },
+      CharNotFound,
+    )
 
   let expr_p =
     {
@@ -235,7 +295,11 @@ fn expr_parser(
           |> then_p(close_paren_c),
         )
 
-        Call(Span(start: get_span(word).start, end: close_c.0.end), word, arg_list)
+        Call(
+          Span(start: get_span(word).start, end: close_c.0.end),
+          word,
+          arg_list,
+        )
       }
 
       let ident =
@@ -290,12 +354,7 @@ fn expr_parser(
           fn(acc, o) { Bin(o.0, acc, o.1) },
         )
 
-      [
-        sum,
-        number_parser,
-        word_parser_orig,
-        paren_p
-      ]
+      [sum, number_parser, word_parser_orig, paren_p]
       |> choice_p(OtherwiseErr)
     }
     |> thenignore_p(list_end_p(EndErr))
