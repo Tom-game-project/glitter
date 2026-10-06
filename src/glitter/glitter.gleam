@@ -15,6 +15,19 @@ pub type TryFn(i, o, e) =
 pub type Parser(i, o, e) =
   TryFn(i, #(o, i), e)
 
+pub fn just(matcher: fn (i) -> option.Option(o), err) -> Parser(List(i), o, e) {
+  fn(input) {
+    case input {
+      [] -> Error(err)
+      [first, ..remain] ->
+        case matcher(first) {
+          option.Some(v) -> Ok(#(v, remain))
+          option.None -> Error(err)
+        }
+    }
+  }
+}
+
 pub fn or_p(p1, p2) -> TryFn(i, o, e) {
   fn(input) {
     use <- result.lazy_or(p1(input))
@@ -67,6 +80,43 @@ pub fn ignorethen_p(p1, p2) -> Parser(i, o2, e) {
 
 pub fn thenignore_p(p1, p2) -> Parser(i, o1, e) {
   map_then_p(p1, p2, fn(l, _r) { l })
+}
+
+type IgnoreState(a) = option.Option(a)
+
+pub fn reconsider(p: Parser(i, o, e)) -> Parser(i, IgnoreState(o), e) {
+  fn (input) {
+    use #(out, rem) <- result.map(p(input))
+    #(option.Some(out), rem)
+  }
+}
+
+pub fn ignore(p: Parser(i, o, e)) -> Parser(i, IgnoreState(o1), e) {
+  fn (input) {
+    use #(_, rem) <- result.map(p(input))
+    #(option.None, rem)
+  }
+}
+
+pub fn skip_ignore_many_p(p: Parser(i, IgnoreState(o), e)) -> Parser(i, List(o), e) {
+  fn(input) { skip_ignore_map_split_while_parser(input, p) |> Ok }
+}
+
+fn skip_ignore_map_split_while_parser(input, p: Parser(i, IgnoreState(o), e)) -> #(List(o), i) {
+  case p(input) {
+    Ok(#(is, remain)) -> {
+      let #(out_list, remainremain) = skip_ignore_map_split_while_parser(remain, p)
+      case is {
+        option.Some(out) ->
+          #([out, ..out_list], remainremain)
+        option.None ->
+          #(out_list, remainremain)
+      }
+    }
+    Error(_e) -> {
+      #([], input)
+    }
+  }
 }
 
 fn map_split_while_parser(input, p) -> #(List(o), i) {
@@ -201,7 +251,7 @@ pub fn end_p(err) -> Parser(String, Nil, e) {
   }
 }
 
-pub fn utf_end_p(err) -> Parser(List(UtfCodepoint), Nil, e) {
+pub fn list_end_p(err) -> Parser(List(a), Nil, e) {
   fn(input) {
     case input {
       [] -> Ok(#(Nil, []))
@@ -210,7 +260,7 @@ pub fn utf_end_p(err) -> Parser(List(UtfCodepoint), Nil, e) {
   }
 }
 
-pub fn utf_end_with_span_p(err) -> Parser(#(Int, List(UtfCodepoint)), Nil, e) {
+pub fn list_end_with_span_p(err) -> Parser(#(Int, List(a)), Nil, e) {
   fn(input) {
     let #(start, left) = input
     case left {

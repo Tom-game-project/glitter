@@ -3,7 +3,7 @@ import gleam/string
 import glitter/glitter.{
   type Span, Span, choice_p, fixed_point_combinator, ignorethen_p, many1_p,
   many_p, map_p, pred_char_p, pred_char_with_span_p, span_gather, then_p,
-  thenignore_p, utf_end_p, utf_end_with_span_p, word_with_span_p,
+  thenignore_p, list_end_p, list_end_with_span_p, word_with_span_p,
 }
 import list1/list1
 
@@ -59,7 +59,7 @@ pub fn pred_char_test() -> Nil {
       |> choice_p(OtherwiseErr)
       |> many_p
     }
-    |> thenignore_p(utf_end_p(EndErr))
+    |> thenignore_p(list_end_p(EndErr))
 
   case
     str
@@ -157,7 +157,7 @@ pub fn pred_char_with_span_test() -> Nil {
       |> choice_p(OtherwiseErr)
       |> many_p
     }
-    |> thenignore_p(utf_end_with_span_p(EndErr))
+    |> thenignore_p(list_end_with_span_p(EndErr))
 
   case entry_parser(#(0, str |> string.to_utf_codepoints)) {
     Ok(#(v, remain)) -> {

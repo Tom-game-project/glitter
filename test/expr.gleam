@@ -1,11 +1,12 @@
+import gleam/option
 import gleam/io
 import gleam/list
 import gleam/string
 import glitter/glitter.{
   type Span, Span, choice_p, fixed_point_combinator, foldl, ignorethen_p,
   many1_p, many_p, map_p, or_p, pred_char_p, pred_char_with_span_p, separated_by,
-  span_gather, then_p, thenignore_p, trymap_p, utf_end_p, utf_end_with_span_p,
-  word_with_span_p,
+  span_gather, then_p, thenignore_p, trymap_p, list_end_p, list_end_with_span_p,
+  word_with_span_p, ignore, reconsider, skip_ignore_many_p, just
 }
 import list1/list1
 
@@ -42,7 +43,27 @@ pub type UntypedExpr {
   Unary(#(Span, UnaryOpe), UntypedExpr)
   Num(Span, String)
   Word(Span, String)
-  Call(Span, #(Span, String), List(UntypedExpr))
+  Call(Span, UntypedExpr, List(UntypedExpr))
+}
+
+fn get_span(a: UntypedExpr) -> Span {
+  case a{
+    Paren(span, _) -> span
+    Bin(#(span, _), _, _) -> span
+    Unary(#(span, _), _) -> span
+    Num(span, _) -> span
+    Word(span, _) -> span
+    Call(span, _, _) -> span
+  }
+}
+
+pub type Token {
+  RParen
+  LParen
+  Comma
+  BinOpe(BinOpe)
+  NumT(String)
+  WordT(String)
 }
 
 const indent_space = "  "
@@ -78,9 +99,10 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
 
     Word(span, word) -> "Word:" <> word <> "\n"
 
-    Call(span, #(_, func_name), args) ->
+    Call(span, func_name, args) ->
       "Func:"
-      <> func_name
+      <> "\n"
+      <> untyped_expr_to_string(depth + 1, func_name)
       <> "\n"
       <> string.join(
         list.map(args, fn(in) { untyped_expr_to_string(depth + 1, in) }),
@@ -89,15 +111,18 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
   }
 }
 
-fn expr_parser(
+fn lexer(
   input: #(Int, List(UtfCodepoint)),
-) -> Result(#(UntypedExpr, #(Int, List(UtfCodepoint))), ParseErr) {
+) -> Result(#(List(#(Span, Token)), #(Int, List(UtfCodepoint))), ParseErr) {
   let open_paren_c =
     pred_char_with_span_p(string.to_utf_codepoints("("), fn(_s) { CharNotFound })
+    |> map_p(fn (in) {#(in.0, LParen)})
   let close_paren_c =
     pred_char_with_span_p(string.to_utf_codepoints(")"), fn(_s) { CharNotFound })
+    |> map_p(fn (in) {#(in.0, RParen)})
   let comma_c =
     pred_char_with_span_p(string.to_utf_codepoints(","), fn(_s) { CharNotFound })
+    |> map_p(fn (in) {#(in.0, Comma)})
 
   let number_parser =
     pred_char_with_span_p(string.to_utf_codepoints("1234567890"), fn(_s) {
@@ -107,7 +132,23 @@ fn expr_parser(
     |> map_p(fn(inner) {
       let #(span, utf_codepoints) = span_gather(inner)
 
-      Num(span, utf_codepoints |> list1.to_list |> string.from_utf_codepoints)
+      #(span, NumT(utf_codepoints |> list1.to_list |> string.from_utf_codepoints))
+    })
+
+  let binop_p =
+    pred_char_with_span_p(string.to_utf_codepoints("+-*/"), fn(_s) {
+      CharNotFound
+    })
+    |> trymap_p(fn(inner) {
+      let #(span, c) = inner
+      case string.utf_codepoint_to_int(c)
+      {
+        0x2b -> Ok(#(span, BinOpe(Add)))
+        0x2d -> Ok(#(span, BinOpe(Sub)))
+        0x2a -> Ok(#(span, BinOpe(Mul)))
+        0x2f -> Ok(#(span, BinOpe(Div)))
+        _ -> Error(InvalidOperator)
+      }
     })
 
   let word_parser_orig =
@@ -119,15 +160,55 @@ fn expr_parser(
     |> map_p(fn(inner) {
       let #(span, utf_codepoints) = span_gather(inner)
 
-      #(span, utf_codepoints |> list1.to_list |> string.from_utf_codepoints)
+      #(span, WordT(utf_codepoints |> list1.to_list |> string.from_utf_codepoints))
     })
 
-  let word_parser = word_parser_orig |> map_p(fn(in) { Word(in.0, in.1) })
+  let pad_p = 
+    pred_char_with_span_p(
+      string.to_utf_codepoints(" \n\t"),
+      fn(_s) { CharNotFound },
+    )
+    |> many_p
 
-  let binop_p =
-    pred_char_with_span_p(string.to_utf_codepoints("+-*/"), fn(_s) {
-      CharNotFound
-    })
+  let token_list = choice_p([
+    open_paren_c,
+    close_paren_c,
+    comma_c,
+    number_parser,
+    word_parser_orig,
+    binop_p,
+  ], OtherwiseErr)
+  |> reconsider()
+  |> or_p(
+    pad_p |> ignore()
+  )
+  |> skip_ignore_many_p 
+  |> thenignore_p(list_end_with_span_p(EndErr)) // TODO infinity loop!!!
+
+  token_list(input)
+}
+
+fn expr_parser(
+  input: List(#(Span, Token)),
+) -> Result(#(UntypedExpr, List(#(Span, Token))), ParseErr) {
+  let open_paren_c = just(
+    fn (input: #(Span, Token)) {
+      case input {
+        #(span, LParen) -> option.Some(#(span, LParen)) 
+        _ -> option.None 
+      }
+    }, CharNotFound)
+  let close_paren_c = just(fn (input) {case input { #(span, RParen) -> option.Some(#(span, RParen)) _ -> option.None }}, CharNotFound)
+  let comma_c = just(fn (input) {case input { #(span, Comma) -> option.Some(#(span, Comma)) _ -> option.None }}, CharNotFound)
+  let number_parser = just(fn (input) {case input { #(span, NumT(str)) -> option.Some(Num(span, str)) _ -> option.None }}, CharNotFound)
+  let word_parser_orig = just(fn (input) {case input { #(span, WordT(str)) -> option.Some(Word(span, str)) _ -> option.None }}, CharNotFound)
+  let binop_p = just(
+    fn (input) {
+      case input { 
+        #(span, BinOpe(binope)) -> {
+          option.Some(#(span, binope))
+        }
+        _ -> option.None}}, CharNotFound)
 
   let expr_p =
     {
@@ -149,19 +230,20 @@ fn expr_parser(
           |> then_p(separated_by(expr, comma_c))
           |> then_p(close_paren_c),
         )
-        Call(Span(start: word.0.start, end: close_c.0.end), word, arg_list)
+
+        Call(Span(start: get_span(word).start, end: close_c.0.end), word, arg_list)
       }
 
       let ident =
-        [number_parser, call, word_parser, paren_p]
+        [number_parser, call, word_parser_orig, paren_p]
         |> choice_p(OtherwiseErr)
 
       let unary =
         {
-          use in <- trymap_p(binop_p)
-          case string.utf_codepoint_to_int(in.1) {
-            0x2b -> Ok(#(in.0, Plus))
-            0x2d -> Ok(#(in.0, Minus))
+          use #(span, binope) <- trymap_p(binop_p)
+          case binope {
+            Add -> Ok(#(span, Plus))
+            Sub -> Ok(#(span, Minus))
             _ -> Error(InvalidOperator)
           }
         }
@@ -176,10 +258,10 @@ fn expr_parser(
         unary
         |> foldl(
           {
-            use in <- trymap_p(binop_p)
-            case string.utf_codepoint_to_int(in.1) {
-              0x2a -> Ok(#(in.0, Mul))
-              0x2f -> Ok(#(in.0, Div))
+            use #(span, binope) <- trymap_p(binop_p)
+            case binope {
+              Mul -> Ok(#(span, Mul))
+              Div -> Ok(#(span, Div))
               _ -> Error(InvalidOperator)
             }
           }
@@ -192,10 +274,10 @@ fn expr_parser(
         product
         |> foldl(
           {
-            use in <- trymap_p(binop_p)
-            case string.utf_codepoint_to_int(in.1) {
-              0x2b -> Ok(#(in.0, Add))
-              0x2d -> Ok(#(in.0, Sub))
+            use #(span, binope) <- trymap_p(binop_p)
+            case binope {
+              Add -> Ok(#(span, Add))
+              Sub -> Ok(#(span, Sub))
               _ -> Error(InvalidOperator)
             }
           }
@@ -205,14 +287,10 @@ fn expr_parser(
         )
 
       [
-        sum,
-        number_parser,
-        word_parser,
-        paren_p,
       ]
       |> choice_p(OtherwiseErr)
     }
-    |> thenignore_p(utf_end_with_span_p(EndErr))
+    |> thenignore_p(list_end_p(EndErr))
 
   expr_p(input)
 }
@@ -220,18 +298,27 @@ fn expr_parser(
 pub fn normal_expr_test() -> Nil {
   let str = "123+42*333+(x+1)+f(x,y+1)"
   // let str = "-1+-1"
-
-  case expr_parser(#(0, str |> string.to_utf_codepoints)) {
-    Ok(#(v, remain)) -> {
-      // echo str
-      // echo v
-      io.println(str)
-      io.println(untyped_expr_to_string(0, v))
-      Nil
+  let a = lexer(#(0, str |> string.to_utf_codepoints))
+  echo "hello"
+  case a {
+    Ok(#(lexed, remain)) -> {
+      case expr_parser(lexed) {
+        Ok(#(v, remain)) -> {
+          // echo str
+          // echo v
+          io.println(str)
+          io.println(untyped_expr_to_string(0, v))
+          Nil
+        }
+        Error(err) -> {
+          echo err
+          io.println("failed to parser")
+        }
+      }
     }
     Error(err) -> {
       echo err
-      io.println("failed to parser")
+      Nil
     }
   }
   Nil
