@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/option
 import gleam/io
 import gleam/list
@@ -68,11 +69,16 @@ pub type Token {
 
 const indent_space = "  "
 
+fn span_string(span: Span) -> String {
+  " @ Span(" <> int.to_string(span.start) <> ", " <> int.to_string(span.end) <> ")"
+}
+
 fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
   string.repeat(indent_space, times: depth)
   <> case ast {
     Paren(span, inner_ast) ->
-      "Paren\n" <> untyped_expr_to_string(depth + 1, inner_ast)
+      "Paren" <> span_string(span) <> "\n" 
+        <> untyped_expr_to_string(depth + 1, inner_ast)
 
     Bin(#(span, ope), expr1, expr2) ->
       case ope {
@@ -82,7 +88,7 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
         Mul -> "Mul"
         Pow -> "Pow"
       }
-      <> "\n"
+      <> span_string(span) <> "\n" 
       <> untyped_expr_to_string(depth + 1, expr1)
       <> untyped_expr_to_string(depth + 1, expr2)
 
@@ -92,16 +98,15 @@ fn untyped_expr_to_string(depth: Int, ast: UntypedExpr) -> String {
         Plus -> "Plus"
         Point -> "Point"
       }
-      <> "\n"
+      <> span_string(span) <> "\n" 
       <> untyped_expr_to_string(depth + 1, expr)
 
-    Num(span, num_string) -> "Num:" <> num_string <> "\n"
+    Num(span, num_string) -> "Num:" <> num_string <> span_string(span) <> "\n" 
 
-    Word(span, word) -> "Word:" <> word <> "\n"
+    Word(span, word) -> "Word:" <> word <> span_string(span) <> "\n" 
 
     Call(span, func_name, args) ->
-      "Func:"
-      <> "\n"
+      "Func:" <> span_string(span) <> "\n" 
       <> untyped_expr_to_string(depth + 1, func_name)
       <> "\n"
       <> string.join(
@@ -168,7 +173,7 @@ fn lexer(
       string.to_utf_codepoints(" \n\t"),
       fn(_s) { CharNotFound },
     )
-    |> many_p
+    |> many1_p
 
   let token_list = choice_p([
     open_paren_c,
@@ -183,7 +188,6 @@ fn lexer(
     pad_p |> ignore()
   )
   |> skip_ignore_many_p 
-  |> thenignore_p(list_end_with_span_p(EndErr)) // TODO infinity loop!!!
 
   token_list(input)
 }
@@ -287,6 +291,10 @@ fn expr_parser(
         )
 
       [
+        sum,
+        number_parser,
+        word_parser_orig,
+        paren_p
       ]
       |> choice_p(OtherwiseErr)
     }
@@ -296,12 +304,12 @@ fn expr_parser(
 }
 
 pub fn normal_expr_test() -> Nil {
-  let str = "123+42*333+(x+1)+f(x,y+1)"
+  let str = "123 + 42 * 333  + (x +1)+ f(x ,y+ 1)"
   // let str = "-1+-1"
-  let a = lexer(#(0, str |> string.to_utf_codepoints))
-  echo "hello"
-  case a {
+
+  case lexer(#(0, str |> string.to_utf_codepoints)) {
     Ok(#(lexed, remain)) -> {
+      echo lexed
       case expr_parser(lexed) {
         Ok(#(v, remain)) -> {
           // echo str
@@ -312,12 +320,14 @@ pub fn normal_expr_test() -> Nil {
         }
         Error(err) -> {
           echo err
-          io.println("failed to parser")
+          echo "failed to parser"
+          Nil
         }
       }
     }
     Error(err) -> {
       echo err
+      echo "lexer failed"
       Nil
     }
   }
