@@ -4,11 +4,11 @@ import gleam/list
 import gleam/option
 import gleam/string
 import glitter/glitter.{
-  type Span, Span, choice_p, fixed_point_combinator, foldl, ignore, ignorethen_p,
-  just, list_end_p, list_end_with_span_p, many1_p, many_p, map_p, or_p,
-  pred_char_p, pred_char_with_span_p, reconsider, separated_by,
+  type Span, Span, choice_p, fixed_point_combinator, foldl, foldr, ignore,
+  ignorethen_p, just, list_end_p, list_end_with_span_p, many1_p, many_p, map_p,
+  or_p, pred_char_p, pred_char_with_span_p, reconsider, separated_by,
   skip_ignore_many_p, span_gather, then_p, thenignore_p, trymap_p,
-  word_with_span_p, foldr
+  word_with_span_p,
 }
 import list1/list1
 
@@ -307,20 +307,20 @@ fn expr_parser(
         [number_parser, call, word_parser_orig, paren_p]
         |> choice_p(OtherwiseErr)
 
-      let rassoc = ident
-      |> foldr(
-          ident |> then_p(
-            {
+      let rassoc =
+        ident
+        |> foldr(
+          ident
+            |> then_p({
               use #(span, binope) <- trymap_p(binop_p)
               case binope {
                 Pow -> Ok(#(span, Pow))
                 _ -> Error(InvalidOperator)
               }
-            }
-          )
-          |> many_p,
+            })
+            |> many_p,
           fn(acc, o) { Bin(o.1, acc, o.0) },
-      )
+        )
 
       let unary =
         {
@@ -379,7 +379,8 @@ fn expr_parser(
 }
 
 pub fn normal_expr_test() -> Nil {
-  let str = "123 + 42 * 333  + (x * (y + x))+ f(x ,y+ 1) + a ^ b ^ c ^ d ^ e + (a ^ (b ^ (c ^ (d ^ e))))"
+  let str =
+    "123 + 42 * 333  + (x * (y + x))+ f(x ,y+ 1) + a ^ b ^ c ^ d ^ e + (a ^ (b ^ (c ^ (d ^ e))))"
   // let str = "-1+-1"
 
   case lexer(#(0, str |> string.to_utf_codepoints)) {
