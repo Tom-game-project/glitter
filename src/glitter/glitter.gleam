@@ -15,7 +15,7 @@ pub type TryFn(i, o, e) =
 pub type Parser(i, o, e) =
   TryFn(i, #(o, i), e)
 
-pub fn just(matcher: fn(i) -> option.Option(o), err) -> Parser(List(i), o, e) {
+pub fn just(matcher: Fn(i, option.Option(o)), err: e) -> Parser(List(i), o, e) {
   fn(input) {
     case input {
       [] -> Error(err)
@@ -28,7 +28,7 @@ pub fn just(matcher: fn(i) -> option.Option(o), err) -> Parser(List(i), o, e) {
   }
 }
 
-pub fn or_p(p1, p2) -> TryFn(i, o, e) {
+pub fn or_p(p1: TryFn(i, o, e), p2: TryFn(i, o, e)) -> TryFn(i, o, e) {
   fn(input) {
     use <- result.lazy_or(p1(input))
     p2(input)
@@ -55,11 +55,15 @@ fn list_or_parser(lp, input, ecomb) -> Result(o, e) {
   }
 }
 
-pub fn choice_p(lp, ecomb) -> TryFn(i, o, e) {
+pub fn choice_p(lp: List(TryFn(i, o, e)), ecomb: e) -> TryFn(i, o, e) {
   list_or_parser(lp, _, ecomb)
 }
 
-pub fn map_then_p(p1, p2, comb) -> Parser(i, o, e) {
+pub fn map_then_p(
+  p1: Parser(i, b, e),
+  p2: Parser(i, c, e),
+  comb: fn(b, c) -> o,
+) -> Parser(i, o, e) {
   fn(input) {
     {
       use #(v0, remain0) <- result.map(p1(input))
@@ -70,15 +74,24 @@ pub fn map_then_p(p1, p2, comb) -> Parser(i, o, e) {
   }
 }
 
-pub fn then_p(p1, p2) -> Parser(i, #(o1, o2), e) {
+pub fn then_p(
+  p1: Parser(i, o1, e),
+  p2: Parser(i, o2, e),
+) -> Parser(i, #(o1, o2), e) {
   map_then_p(p1, p2, fn(l, r) { #(l, r) })
 }
 
-pub fn ignorethen_p(p1, p2) -> Parser(i, o2, e) {
+pub fn ignorethen_p(
+  p1: Parser(i, o1, e),
+  p2: Parser(i, o2, e),
+) -> Parser(i, o2, e) {
   map_then_p(p1, p2, fn(_l, r) { r })
 }
 
-pub fn thenignore_p(p1, p2) -> Parser(i, o1, e) {
+pub fn thenignore_p(
+  p1: Parser(i, o1, e),
+  p2: Parser(i, o2, e),
+) -> Parser(i, o1, e) {
   map_then_p(p1, p2, fn(l, _r) { l })
 }
 
@@ -134,11 +147,11 @@ fn map_split_while_parser(input, p) -> #(List(o), i) {
   }
 }
 
-pub fn many_p(p) -> Parser(i, List(o), e) {
+pub fn many_p(p: Parser(i, o, e)) -> Parser(i, List(o), e) {
   fn(input) { map_split_while_parser(input, p) |> Ok }
 }
 
-pub fn many1_p(p) -> Parser(i, List1(o), e) {
+pub fn many1_p(p: Parser(i, o, e)) -> Parser(i, List1(o), e) {
   use #(o, r) <- map_p(then_p(p, many_p(p)))
 
   list1.new(o, r)
@@ -163,17 +176,14 @@ pub fn separated_by(
   }
 }
 
-pub fn map_p(p, f) -> Parser(i, o, e) {
+pub fn map_p(p: Parser(i, d, e), f: Fn(d, o)) -> Parser(i, o, e) {
   fn(input) {
     use #(b, r) <- result.map(p(input))
     #(f(b), r)
   }
 }
 
-pub fn trymap_p(
-  p: Parser(i, a, e),
-  f: fn(a) -> Result(o, e),
-) -> Parser(i, o, e) {
+pub fn trymap_p(p: Parser(i, a, e), f: TryFn(a, o, e)) -> Parser(i, o, e) {
   fn(input) {
     {
       use #(v, rem) <- result.map(p(input))
@@ -199,15 +209,30 @@ pub fn foldl(
   }
 }
 
+pub fn foldr(
+  init_p: Parser(i, acc, e),
+  p: Parser(i, List(o), e),
+  f: fn(acc, o) -> acc,
+) -> Parser(i, acc, e) {
+  fn(input) {
+    {
+      use #(lst, rem) <- result.map(p(input))
+      use #(acc, init_rem) <- result.map(init_p(rem))
+      #(list.fold_right(lst, acc, f), init_rem)
+    }
+    |> result.flatten
+  }
+}
+
 /// example
 /// ```
 /// fn (dispatch) { then_p(char_p("{"), then_p(dispatch, char_p("}"))) }
 /// ```
-pub fn fixed_point_combinator(f) -> Fn(i, o) {
+pub fn fixed_point_combinator(f: Fn(Fn(i, o), Fn(i, o))) -> Fn(i, o) {
   fn(x) { f(fixed_point_combinator(f))(x) }
 }
 
-pub fn word_p(word, conb, ecomb) -> Parser(String, o, e) {
+pub fn word_p(word: String, conb: o, ecomb: e) -> Parser(String, o, e) {
   let token_length = string.length(word)
   fn(input) {
     case string.starts_with(input, word) {
@@ -229,7 +254,7 @@ fn list_start_with(lst1, lst2) -> Bool {
 pub fn word_with_span_p(
   word: List(UtfCodepoint),
   comb: o,
-  ecomb: fn(Span) -> e,
+  ecomb: Fn(Span, e),
 ) -> Parser(#(Int, List(UtfCodepoint)), #(Span, o), e) {
   let token_length = list.length(word)
 
@@ -247,7 +272,7 @@ pub fn word_with_span_p(
   }
 }
 
-pub fn end_p(err) -> Parser(String, Nil, e) {
+pub fn end_p(err: e) -> Parser(String, Nil, e) {
   fn(input) {
     case input {
       "" -> Ok(#(Nil, ""))
@@ -256,7 +281,7 @@ pub fn end_p(err) -> Parser(String, Nil, e) {
   }
 }
 
-pub fn list_end_p(err) -> Parser(List(a), Nil, e) {
+pub fn list_end_p(err: e) -> Parser(List(a), Nil, e) {
   fn(input) {
     case input {
       [] -> Ok(#(Nil, []))
@@ -265,7 +290,7 @@ pub fn list_end_p(err) -> Parser(List(a), Nil, e) {
   }
 }
 
-pub fn list_end_with_span_p(err) -> Parser(#(Int, List(a)), Nil, e) {
+pub fn list_end_with_span_p(err: e) -> Parser(#(Int, List(a)), Nil, e) {
   fn(input) {
     let #(start, left) = input
     case left {
@@ -276,16 +301,16 @@ pub fn list_end_with_span_p(err) -> Parser(#(Int, List(a)), Nil, e) {
 }
 
 pub fn pred_char_p(
-  char_list,
-  ecomb,
+  char_list: List(UtfCodepoint),
+  err: e,
 ) -> Parser(List(UtfCodepoint), UtfCodepoint, e) {
   fn(input) {
     case input {
-      [] -> Error(ecomb)
+      [] -> Error(err)
       [first, ..remain] ->
         case list.contains(char_list, first) {
           True -> Ok(#(first, remain))
-          False -> Error(ecomb)
+          False -> Error(err)
         }
     }
   }
@@ -296,8 +321,8 @@ pub type Span {
 }
 
 pub fn pred_char_with_span_p(
-  char_list,
-  ecomb,
+  char_list: List(UtfCodepoint),
+  ecomb: Fn(Span, e),
 ) -> Parser(#(Int, List(UtfCodepoint)), #(Span, UtfCodepoint), e) {
   fn(input) {
     let #(start, left) = input

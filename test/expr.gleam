@@ -8,7 +8,7 @@ import glitter/glitter.{
   just, list_end_p, list_end_with_span_p, many1_p, many_p, map_p, or_p,
   pred_char_p, pred_char_with_span_p, reconsider, separated_by,
   skip_ignore_many_p, span_gather, then_p, thenignore_p, trymap_p,
-  word_with_span_p,
+  word_with_span_p, foldr
 }
 import list1/list1
 
@@ -155,7 +155,7 @@ fn lexer(
     })
 
   let binop_p =
-    pred_char_with_span_p(string.to_utf_codepoints("+-*/"), fn(_s) {
+    pred_char_with_span_p(string.to_utf_codepoints("+-*/^"), fn(_s) {
       CharNotFound
     })
     |> trymap_p(fn(inner) {
@@ -165,6 +165,7 @@ fn lexer(
         0x2d -> Ok(#(span, BinOpe(Sub)))
         0x2a -> Ok(#(span, BinOpe(Mul)))
         0x2f -> Ok(#(span, BinOpe(Div)))
+        0x5e -> Ok(#(span, BinOpe(Pow)))
         _ -> Error(InvalidOperator)
       }
     })
@@ -306,6 +307,21 @@ fn expr_parser(
         [number_parser, call, word_parser_orig, paren_p]
         |> choice_p(OtherwiseErr)
 
+      let rassoc = ident
+      |> foldr(
+          ident |> then_p(
+            {
+              use #(span, binope) <- trymap_p(binop_p)
+              case binope {
+                Pow -> Ok(#(span, Pow))
+                _ -> Error(InvalidOperator)
+              }
+            }
+          )
+          |> many_p,
+          fn(acc, o) { Bin(o.1, acc, o.0) },
+      )
+
       let unary =
         {
           use #(span, binope) <- trymap_p(binop_p)
@@ -315,12 +331,12 @@ fn expr_parser(
             _ -> Error(InvalidOperator)
           }
         }
-        |> then_p(ident)
+        |> then_p(rassoc)
         |> map_p(fn(i) {
           let #(ope, a) = i
           Unary(ope, a)
         })
-        |> or_p(ident)
+        |> or_p(rassoc)
 
       let product =
         unary
@@ -363,7 +379,7 @@ fn expr_parser(
 }
 
 pub fn normal_expr_test() -> Nil {
-  let str = "123 + 42 * 333  + (x +1)+ f(x ,y+ 1)"
+  let str = "123 + 42 * 333  + (x * (y + x))+ f(x ,y+ 1) + a ^ b ^ c ^ d ^ e + (a ^ (b ^ (c ^ (d ^ e))))"
   // let str = "-1+-1"
 
   case lexer(#(0, str |> string.to_utf_codepoints)) {
